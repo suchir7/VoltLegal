@@ -136,7 +136,7 @@ cp .env.example .env
 TELEGRAM_BOT_TOKEN=your_telegram_bot_token
 GEMINI_API_KEY=your_gemini_api_key
 GROQ_API_KEY=your_groq_api_key
-DB_PATH=voltlegal.db
+DB_PATH=voltlegal.db                    # only needed for local/SQLite fallback
 
 # Optional — for Turso cloud database
 TURSO_DATABASE_URL=libsql://your-db.turso.io
@@ -213,9 +213,15 @@ No code changes needed between local development and cloud deployment.
 
 ---
 
-## ☁️ Deployment (Oracle Cloud / Linux)
+## ☁️ Deployment
 
-A systemd service file is included:
+### Render (Current Deployment)
+- Deployed as a **Background Worker** on Render
+- Auto-deploys on every GitHub push
+- Environment variables set in Render dashboard
+
+### Oracle Cloud / Linux (Self-hosted)
+A systemd service file is included for self-hosted deployment:
 
 ```bash
 # Copy service file
