@@ -1,3 +1,10 @@
+title: VoltLegal Bot
+emoji: ⚖️
+colorFrom: blue
+colorTo: green
+sdk: docker
+pinned: false
+
 # ⚖️ VoltLegal — AI-Powered Indian Legal Assistant
 
 **VoltLegal** is a Telegram bot that helps everyday people understand Indian law in simple language. It combines **Groq (LLaMA 3.3 70B)** for fast legal reasoning with **Google Gemini 2.5 Flash** for document/image/voice processing — all through an intuitive chat interface.
