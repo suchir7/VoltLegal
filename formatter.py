@@ -4,7 +4,6 @@ Professional formatting, legal citations, disclaimers, rights menus, and IPC/glo
 """
 
 import re
-from datetime import datetime
 
 DISCLAIMER = (
     "\n\n⚠️ *Disclaimer:*\n"
@@ -119,44 +118,6 @@ def format_voice_transcription(transcription: str) -> str:
     return f"🎤 *I heard:* _{transcription}_\n\n⚖️ Looking up the law for you..."
 
 
-def format_history_response(conversations: list) -> str:
-    """Format a list of conversation dicts from DB for Telegram display."""
-    if not conversations:
-        return (
-            "📋 *Your Recent Activity*\n\n"
-            "No history yet! Start by asking a legal question, "
-            "sending a document, or using /situation.\n\n"
-            "Your activity will appear here next time."
-        )
-
-    ICONS = {
-        "legal_qa": "⚖️",
-        "document": "📄",
-        "situation": "🛡️",
-        "draft": "✍️",
-        "ipc": "📕",
-        "glossary": "📖",
-        "voice": "🎤",
-    }
-
-    lines = ["📋 *Your Recent Activity*\n"]
-    for i, conv in enumerate(conversations, 1):
-        icon = ICONS.get(conv.get("conv_type", ""), "💬")
-        # Format date
-        raw_date = conv.get("created_at", "")
-        try:
-            dt = datetime.fromisoformat(raw_date)
-            date_str = dt.strftime("%d %b, %H:%M")
-        except (ValueError, TypeError):
-            date_str = raw_date[:16] if raw_date else "—"
-        # Truncate message
-        msg = conv.get("user_message", "") or ""
-        msg_short = msg[:80] + ("..." if len(msg) > 80 else "")
-        lines.append(f"{i}. {icon} *{date_str}* — {msg_short}")
-
-    return "\n".join(lines)
-
-
 def build_welcome_message() -> str:
     """Build the /start welcome message."""
     return (
@@ -205,7 +166,6 @@ def build_help_message() -> str:
         "/rights — Quick reference to your legal rights\n"
         "/hindi — Translate last response to Hindi\n"
         "/telugu — Translate last response to Telugu\n"
-        "/history — View your recent activity\n"
         "/clear — Clear current context\n"
         "/cancel — Cancel current conversation\n"
         "/about — About VoltLegal\n"

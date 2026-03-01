@@ -370,20 +370,3 @@ def translate_to_telugu(text: str) -> str:
         {"role": "system", "content": TELUGU_TRANSLATION_SYSTEM},
         {"role": "user", "content": f"Translate this to Telugu:\n\n{text}"}
     ], temperature=0.2, max_tokens=4096)
-
-
-def check_draft_readiness(conversation_history: list[dict]) -> str:
-    """Check if enough information has been gathered to generate a draft.
-    Returns 'READY' or 'MORE'."""
-    messages = [
-        {"role": "system", "content": (
-            "Given this draft conversation history, respond with ONLY the word "
-            "'READY' if you have enough information to generate a complete legal "
-            "document draft (complainant details, incident details, who it's against, "
-            "and what relief is sought), or 'MORE' if you need more details. "
-            "Respond with exactly one word: READY or MORE."
-        )}
-    ]
-    messages.extend(conversation_history)
-    result = _call_groq(messages, temperature=0.1, max_tokens=10)
-    return result.strip().upper() if result else "MORE"
