@@ -28,6 +28,7 @@ import groq_service
 import gemini_service
 import formatter
 import db
+from keep_alive import keep_alive
 
 load_dotenv()
 
@@ -1210,6 +1211,7 @@ def main():
     print("   Features: Legal Q&A, Document Scan, Situation Help, Drafting,")
     print("   IPC Lookup, Glossary, Voice Messages, Hindi & Telugu Translation")
     print("   Database: SQLite persistent storage enabled")
+    keep_alive()
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
