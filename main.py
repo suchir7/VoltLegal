@@ -5,6 +5,7 @@ Groq (Legal Q&A, Situation, Draft, IPC, Glossary) + Gemini (Documents, Images, V
 """
 
 import os
+import sys
 import time
 import logging
 from collections import defaultdict
@@ -65,14 +66,32 @@ def _check_rate_limit(user_id: int) -> bool:
 
 # ─── Utility ─────────────────────────────────────────────────────────────────
 
+def _sanitize_markdown(text: str) -> str:
+    """Escape characters that break Telegram Markdown v1 parsing."""
+    # Telegram Markdown v1 uses * _ ` [ as special chars.
+    # Unbalanced bold/italic markers frequently crash parse_mode="Markdown".
+    # Fix unbalanced asterisks and underscores.
+    for ch in ('*', '_', '`'):
+        count = text.count(ch)
+        if count % 2 != 0:
+            # Remove the LAST occurrence to balance
+            idx = text.rfind(ch)
+            text = text[:idx] + text[idx + 1:]
+    return text
+
+
 async def send_long_message(update: Update, text: str, parse_mode: str = "Markdown"):
     """Split and send messages that exceed Telegram's 4096-char limit."""
     MAX_LEN = 4000
     if len(text) <= MAX_LEN:
         try:
-            await update.message.reply_text(text, parse_mode=parse_mode)
+            await update.message.reply_text(_sanitize_markdown(text), parse_mode=parse_mode)
         except Exception:
-            await update.message.reply_text(text)
+            # Fallback: strip all markdown and send plain text
+            try:
+                await update.message.reply_text(text, parse_mode=None)
+            except Exception as e:
+                logger.error(f"Failed to send message even without parse_mode: {e}")
         return
 
     # Split by double newline for natural breaks
@@ -90,9 +109,12 @@ async def send_long_message(update: Update, text: str, parse_mode: str = "Markdo
 
     for chunk in chunks:
         try:
-            await update.message.reply_text(chunk.strip(), parse_mode=parse_mode)
+            await update.message.reply_text(_sanitize_markdown(chunk.strip()), parse_mode=parse_mode)
         except Exception:
-            await update.message.reply_text(chunk.strip())
+            try:
+                await update.message.reply_text(chunk.strip(), parse_mode=None)
+            except Exception as e:
+                logger.error(f"Failed to send chunk even without parse_mode: {e}")
 
 
 async def send_typing(update: Update):
@@ -411,6 +433,45 @@ async def handle_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as e:
         logger.error(f"Image analysis error: {e}")
+        await update.message.reply_text(
+            "❌ Sorry, I couldn't analyze this image. "
+            "Please ensure it's clear and readable, then try again."
+        )
+
+
+# ─── Image-as-Document Handler ──────────────────────────────────────────────
+
+async def handle_image_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle images sent as document attachments (uncompressed)."""
+    if not _check_rate_limit(update.effective_user.id):
+        await update.message.reply_text("⏳ Please wait a moment before sending another image.")
+        return
+
+    await send_typing(update)
+    await update.message.reply_text("📷 Reading your document image... Please wait.")
+
+    try:
+        doc = update.message.document
+        file = await context.bot.get_file(doc.file_id)
+        img_bytes = await file.download_as_bytearray()
+
+        result = gemini_service.analyze_image(bytes(img_bytes))
+        formatted = formatter.format_document_analysis(result, "Image")
+
+        context.user_data["last_document_analysis"] = result
+        context.user_data["last_mode"] = "document"
+        context.user_data["last_bot_response"] = result
+
+        await send_long_message(update, formatted)
+        await update.message.reply_text(
+            "💬 _You can ask follow-up questions about this document. "
+            "Just type your question!_\n"
+            "🌐 _Use /hindi or /telugu to translate._",
+            parse_mode="Markdown",
+        )
+
+    except Exception as e:
+        logger.error(f"Image document analysis error: {e}")
         await update.message.reply_text(
             "❌ Sorry, I couldn't analyze this image. "
             "Please ensure it's clear and readable, then try again."
@@ -836,14 +897,38 @@ async def clear_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+# ─── Global Error Handler ────────────────────────────────────────────────────
+
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Log unhandled errors and notify user if possible."""
+    logger.error(f"Unhandled exception: {context.error}", exc_info=context.error)
+
+    # Try to notify the user
+    if isinstance(update, Update) and update.message:
+        try:
+            await update.message.reply_text(
+                "❌ An unexpected error occurred. Please try again in a moment.\n"
+                "If the problem persists, use /feedback to report it."
+            )
+        except Exception:
+            pass  # Can't even notify the user — just log
+
+
 # ─── Main ────────────────────────────────────────────────────────────────────
 
 def main():
     """Start the VoltLegal bot."""
     if not TELEGRAM_BOT_TOKEN:
+        logger.critical("TELEGRAM_BOT_TOKEN not found in .env")
         print("❌ TELEGRAM_BOT_TOKEN not found in .env")
         print("   Get one from @BotFather on Telegram and add it to your .env file.")
-        return
+        sys.exit(1)
+
+    # Validate other keys early
+    if not os.getenv("GROQ_API_KEY"):
+        logger.warning("GROQ_API_KEY not found — Legal Q&A, IPC, Glossary, Drafting, Translation will fail")
+    if not os.getenv("GEMINI_API_KEY"):
+        logger.warning("GEMINI_API_KEY not found — PDF, Image, Voice analysis will fail")
 
     print("⚖️  VoltLegal is starting...")
 
@@ -861,6 +946,8 @@ def main():
             ],
         },
         fallbacks=[CommandHandler("cancel", situation_cancel)],
+        per_user=True,
+        per_chat=True,
     )
 
     # Document drafting conversation handler (Mode 4)
@@ -875,6 +962,8 @@ def main():
             ],
         },
         fallbacks=[CommandHandler("cancel", draft_cancel)],
+        per_user=True,
+        per_chat=True,
     )
 
     # Feedback conversation handler
@@ -886,6 +975,8 @@ def main():
             ],
         },
         fallbacks=[CommandHandler("cancel", feedback_cancel)],
+        per_user=True,
+        per_chat=True,
     )
 
     # Register handlers (order matters!)
@@ -913,6 +1004,13 @@ def main():
     )
     app.add_handler(MessageHandler(word_filter, handle_word_doc))
     app.add_handler(MessageHandler(filters.PHOTO, handle_image))
+    # Handle images sent as documents (file attachment)
+    image_doc_filter = (
+        filters.Document.MimeType("image/jpeg") |
+        filters.Document.MimeType("image/png") |
+        filters.Document.MimeType("image/webp")
+    )
+    app.add_handler(MessageHandler(image_doc_filter, handle_image_document))
 
     # Voice messages
     app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, handle_voice))
@@ -926,10 +1024,13 @@ def main():
     # Mode 3: Text questions (+ document follow-up)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
+    # Global error handler — catches anything unhandled
+    app.add_error_handler(error_handler)
+
     print("✅ VoltLegal is running! Send messages on Telegram.")
     print("   Features: Legal Q&A, Document Scan, Situation Help, Drafting,")
     print("   IPC Lookup, Glossary, Voice Messages, Hindi & Telugu Translation")
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
+    app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
 
 if __name__ == "__main__":
